@@ -40,12 +40,26 @@ class MqttPublisher:
         verbindingsstoring gepubliceerd worden, door paho worden gequeued en
         bij reconnect alsnog worden afgeleverd."""
         topic = f"{self.topic_base}/{subtopic}"
+
+        # Zonder verbinding niet publiceren: paho zou het bericht in zijn
+        # eigen wachtrij zetten en bij reconnect alsnog versturen, terwijl de
+        # volgende poll het opnieuw probeert. Dat gaf een groeiende wachtrij
+        # en dubbele berichten na een langere storing.
+        if not self.client.is_connected():
+            logging.warning("Niet verbonden met MQTT; %s niet gepubliceerd", topic)
+            return False
+
         message = json.dumps(payload, ensure_ascii=False)
         result = self.client.publish(topic, message, qos=qos, retain=retain)
 
         # Timeout voorkomt dat de poll-loop oneindig blijft hangen als de
-        # broker langdurig onbereikbaar is.
-        result.wait_for_publish(timeout=10)
+        # broker langdurig onbereikbaar is. wait_for_publish gooit een
+        # exception als de verbinding net tussendoor wegviel.
+        try:
+            result.wait_for_publish(timeout=10)
+        except (RuntimeError, ValueError) as exc:
+            logging.warning("Publiceren naar %s mislukt: %s", topic, exc)
+            return False
 
         if result.is_published():
             logging.info("Gepubliceerd naar %s", topic)
