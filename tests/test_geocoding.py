@@ -67,7 +67,7 @@ def _enrich_config():
 
 
 def test_enrich_alert_sets_distance():
-    alert = parse_feed(FIXTURE.read_bytes(), limit=1)[0]
+    alert = parse_feed(FIXTURE.read_bytes(), limit=1, location_name="Katwijk")[0]
     payload = [{"lat": "52.2011", "lon": "4.3997", "display_name": "Prins Hendrikkade"}]
     with mock.patch("geocoding.requests.get", return_value=_response(payload)):
         enriched = app_main.enrich_alert(alert, _enrich_config())
@@ -78,7 +78,7 @@ def test_enrich_alert_sets_distance():
 
 
 def test_enrich_alert_survives_network_error():
-    alert = parse_feed(FIXTURE.read_bytes(), limit=1)[0]
+    alert = parse_feed(FIXTURE.read_bytes(), limit=1, location_name="Katwijk")[0]
     with mock.patch(
         "geocoding.requests.get", side_effect=requests.ConnectionError("offline")
     ):

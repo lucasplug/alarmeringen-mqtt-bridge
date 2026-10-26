@@ -2,9 +2,9 @@
 # Plak dit als stack in Portainer (Stacks -> Add stack) of wijs naar deze repo.
 # Vul je echte MQTT-gegevens in Portainer in; commit ze niet naar git.
 services:
-  alarmeringen-katwijk:
-    image: ghcr.io/lucasplug/alarmeringen-katwijk:latest
-    container_name: alarmeringen-katwijk
+  alarmeringen-mqtt-bridge:
+    image: ghcr.io/lucasplug/alarmeringen-mqtt-bridge:latest
+    container_name: alarmeringen-mqtt-bridge
     restart: unless-stopped
     # Lichte hardening; /app/data blijft schrijfbaar via het volume.
     security_opt:
@@ -14,18 +14,21 @@ services:
     mem_limit: 256m
     cpus: 0.50
     environment:
+      LOCATION_NAME: "Katwijk"
+      COUNTRY_NAME: "Nederland"
       MQTT_HOST: "mqtt.example.local"
       MQTT_PORT: "1883"
       MQTT_USER: "mqtt"
       MQTT_PASSWORD: "vervang_dit"
-      MQTT_TOPIC_BASE: "alarmeringen/katwijk"
+      MQTT_TOPIC_BASE: "p2000"
       FEED_URL: "https://alarmeringen.nl/feeds/city/katwijk.rss"
       INTERVAL: "60"
       HISTORY_SIZE: "5"
+      REPEAT_WINDOW_MINUTES: "30"
       GEOCODING_ENABLED: "true"
       HOME_LAT: ""
       HOME_LON: ""
-      GEOCODER_USER_AGENT: "alarmeringen-katwijk/1.0"
+      GEOCODER_USER_AGENT: "alarmeringen-mqtt-bridge/1.0"
       TZ: "Europe/Amsterdam"
     volumes:
       - alarmeringen-data:/app/data

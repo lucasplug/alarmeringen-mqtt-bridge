@@ -31,11 +31,13 @@ class FakeMqtt:
 def make_config(**overrides) -> Config:
     values = dict(
         feed_url="https://example.test/feed.rss",
+        location_name="Katwijk",
+        country_name="Nederland",
         mqtt_host="localhost",
         mqtt_port=1883,
         mqtt_user="",
         mqtt_password="",
-        mqtt_topic_base="alarmeringen/katwijk",
+        mqtt_topic_base="p2000",
         interval=60,
         history_size=5,
         geocoding_enabled=False,
@@ -52,7 +54,7 @@ def make_config(**overrides) -> Config:
 
 @pytest.fixture()
 def alerts():
-    return parse_feed(FIXTURE.read_bytes(), limit=5)
+    return parse_feed(FIXTURE.read_bytes(), limit=5, location_name="Katwijk")
 
 
 def test_multiple_new_alerts_published_oldest_first(alerts):
@@ -136,3 +138,83 @@ def test_heartbeat_written(tmp_path):
     path = tmp_path / "data" / "heartbeat"
     app_main.touch_heartbeat(str(path))
     assert path.exists()
+
+
+def _repeat_of(alert, pub_date):
+    """Dezelfde pagertekst opnieuw verzonden: nieuwe pubDate, dus nieuw ID."""
+    from models import Alert
+
+    return Alert.from_entry(
+        {"title": alert.titel, "summary": alert.omschrijving, "link": alert.link,
+         "published": pub_date},
+        "Katwijk",
+    )
+
+
+def test_repeated_pager_text_within_window_is_not_published_again(alerts):
+    state = AlertState(max_seen_ids=100, history_size=5, repeat_window=1800)
+    cfg = make_config(repeat_window=1800)
+    assert app_main.process_alerts(alerts[:1], state, FakeMqtt(), cfg, now=1000.0)
+
+    repeat = _repeat_of(alerts[0], "Fri, 10 Jul 2026 10:58:00 +0000")
+    assert repeat.id != alerts[0].id
+    mqtt = FakeMqtt()
+
+    changed = app_main.process_alerts([repeat], state, mqtt, cfg, now=1000.0 + 19 * 60)
+
+    # Niets gepubliceerd, maar wel als gezien onthouden (state opslaan).
+    assert changed is True
+    assert mqtt.published == []
+    assert state.is_seen(repeat.id)
+    assert len(state.history) == 1
+
+
+def test_same_text_after_window_is_a_new_alert(alerts):
+    state = AlertState(max_seen_ids=100, history_size=5, repeat_window=1800)
+    cfg = make_config(repeat_window=1800)
+    app_main.process_alerts(alerts[:1], state, FakeMqtt(), cfg, now=1000.0)
+
+    repeat = _repeat_of(alerts[0], "Fri, 10 Jul 2026 12:39:00 +0000")
+    mqtt = FakeMqtt()
+    app_main.process_alerts([repeat], state, mqtt, cfg, now=1000.0 + 31 * 60)
+
+    assert [p[0] for p in mqtt.published] == ["laatste", "historie", "melding"]
+
+
+def test_repeat_detection_disabled_with_zero_window(alerts):
+    state = AlertState(max_seen_ids=100, history_size=5, repeat_window=0)
+    cfg = make_config()
+    app_main.process_alerts(alerts[:1], state, FakeMqtt(), cfg, now=1000.0)
+
+    repeat = _repeat_of(alerts[0], "Fri, 10 Jul 2026 10:58:00 +0000")
+    mqtt = FakeMqtt()
+    app_main.process_alerts([repeat], state, mqtt, cfg, now=1060.0)
+
+    assert len([p for p in mqtt.published if p[0] == "melding"]) == 1
+
+
+def test_first_run_takes_over_feed_without_notifications(alerts):
+    state = AlertState(max_seen_ids=100, history_size=5)
+    mqtt = FakeMqtt()
+
+    changed = app_main.process_alerts(alerts, state, mqtt, make_config(), announce=False)
+
+    assert changed is True
+    assert all(state.is_seen(a.id) for a in alerts)
+    # Wel retained 'laatste'/'historie' voor het HA-dashboard, geen 'melding'.
+    assert {p[0] for p in mqtt.published} == {"laatste", "historie"}
+    assert state.history[0]["titel"].startswith("P1 Woningbrand")
+
+
+def test_geocoding_skipped_without_recognized_location(alerts):
+    from unittest import mock
+
+    alert = alerts[0]
+    alert.locatie = ""
+    cfg = make_config(geocoding_enabled=True, home_lat=52.2, home_lon=4.4)
+
+    with mock.patch("main.geocode") as geocode:
+        enriched = app_main.enrich_alert(alert, cfg)
+
+    geocode.assert_not_called()
+    assert enriched.lat is None and enriched.afstand_km is None
