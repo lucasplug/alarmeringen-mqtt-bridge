@@ -1,4 +1,4 @@
-feedparser==6.0.11
+feedparser==6.0.14
 paho-mqtt==2.1.0
 requests==2.34.2
-tzdata==2025.2
+tzdata==2026.4

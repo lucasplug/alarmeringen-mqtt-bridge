@@ -62,3 +62,30 @@ def test_load_trims_history_to_current_size(tmp_path):
     state = AlertState(max_seen_ids=10, history_size=3)
     state.load(str(path))
     assert len(state.history) == 3
+
+
+def test_is_repeat_within_window_only():
+    state = AlertState(max_seen_ids=10, history_size=5, repeat_window=600)
+    state.remember_title("A1  Hoorneslaan KATWZH : 16189", now=1000.0)
+    # Normalisatie van hoofdletters en witruimte.
+    assert state.is_repeat("a1 hoorneslaan katwzh : 16189", now=1500.0)
+    assert not state.is_repeat("a1 hoorneslaan katwzh : 16189", now=1700.0)
+    assert not state.is_repeat("a2 hoorneslaan katwzh : 16189", now=1100.0)
+
+
+def test_recent_titles_pruned_and_persisted(tmp_path):
+    path = str(tmp_path / "state.json")
+    state = AlertState(max_seen_ids=10, history_size=5, repeat_window=600)
+    state.remember_title("oud", now=0.0)
+    state.remember_title("nieuw", now=1000.0)
+    assert list(state.recent_titles) == ["nieuw"]
+    state.save(path)
+
+    reloaded = AlertState(max_seen_ids=10, history_size=5, repeat_window=600)
+    assert reloaded.load(path) is True
+    assert reloaded.is_repeat("nieuw", now=1100.0)
+
+
+def test_load_reports_missing_state(tmp_path):
+    state = AlertState(max_seen_ids=10, history_size=5)
+    assert state.load(str(tmp_path / "bestaat-niet.json")) is False

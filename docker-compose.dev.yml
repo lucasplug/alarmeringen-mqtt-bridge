@@ -3,14 +3,16 @@
 #
 #   docker compose -f docker-compose.dev.yml up -d --build
 services:
-  alarmeringen-katwijk:
+  alarmeringen-mqtt-bridge:
     build: .
-    image: alarmeringen-katwijk:dev
-    container_name: alarmeringen-katwijk-dev
+    image: alarmeringen-mqtt-bridge:dev
+    container_name: alarmeringen-mqtt-bridge-dev
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      LOCATION_NAME: "${LOCATION_NAME:-Katwijk}"
+      COUNTRY_NAME: "${COUNTRY_NAME:-Nederland}"
       TZ: Europe/Amsterdam
     volumes:
       - alarmeringen-data:/app/data

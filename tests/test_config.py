@@ -15,15 +15,41 @@ def clean_env(monkeypatch):
         "GEOCODING_ENABLED",
         "HOME_LAT",
         "HOME_LON",
+        "LOCATION_NAME",
+        "COUNTRY_NAME",
+        "FEED_URL",
+        "REPEAT_WINDOW_MINUTES",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LOCATION_NAME", "Katwijk")
+    monkeypatch.setenv("FEED_URL", "https://example.test/katwijk.rss")
 
 
 def test_defaults_are_valid():
     cfg = load_config()
+    assert cfg.location_name == "Katwijk"
+    assert cfg.country_name == "Nederland"
     assert cfg.mqtt_port == 1883
     assert cfg.interval == 60
     assert cfg.history_size == 5
+    assert cfg.repeat_window == 30 * 60
+
+
+def test_location_name_is_required(monkeypatch):
+    monkeypatch.delenv("LOCATION_NAME")
+    with pytest.raises(ConfigError, match="LOCATION_NAME"):
+        load_config()
+
+
+def test_feed_url_is_required(monkeypatch):
+    monkeypatch.delenv("FEED_URL")
+    with pytest.raises(ConfigError, match="FEED_URL"):
+        load_config()
+
+
+def test_country_name_may_be_overridden(monkeypatch):
+    monkeypatch.setenv("COUNTRY_NAME", "België")
+    assert load_config().country_name == "België"
 
 
 def test_invalid_mqtt_port_raises(monkeypatch):
@@ -83,3 +109,14 @@ def test_geocoding_enabled_with_valid_coordinates(monkeypatch):
     assert cfg.geocoding_enabled is True
     assert cfg.home_lat == 52.2
     assert cfg.home_lon == 4.4
+
+
+def test_repeat_window_zero_disables(monkeypatch):
+    monkeypatch.setenv("REPEAT_WINDOW_MINUTES", "0")
+    assert load_config().repeat_window == 0
+
+
+def test_negative_repeat_window_rejected(monkeypatch):
+    monkeypatch.setenv("REPEAT_WINDOW_MINUTES", "-5")
+    with pytest.raises(ConfigError, match="REPEAT_WINDOW_MINUTES"):
+        load_config()

@@ -27,6 +27,8 @@ def _env_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class Config:
     feed_url: str
+    location_name: str
+    country_name: str
     mqtt_host: str
     mqtt_port: int
     mqtt_user: str
@@ -41,6 +43,7 @@ class Config:
     state_file: str
     max_seen_ids: int
     heartbeat_file: str
+    repeat_window: int = 0
 
 
 def load_config() -> Config:
@@ -49,6 +52,18 @@ def load_config() -> Config:
     Ongeldige verplichte waarden geven een ConfigError (container stopt met
     een duidelijke fout); herstelbare waarden worden geclampt met een warning.
     """
+    feed_url = os.getenv("FEED_URL", "").strip()
+    if not feed_url:
+        raise ConfigError("FEED_URL ontbreekt")
+
+    location_name = os.getenv("LOCATION_NAME", "").strip()
+    if not location_name:
+        raise ConfigError("LOCATION_NAME ontbreekt")
+
+    country_name = os.getenv("COUNTRY_NAME", "Nederland").strip()
+    if not country_name:
+        raise ConfigError("COUNTRY_NAME mag niet leeg zijn")
+
     mqtt_port = _env_int("MQTT_PORT", 1883)
     if not 1 <= mqtt_port <= 65535:
         raise ConfigError(f"MQTT_PORT={mqtt_port} valt buiten 1-65535")
@@ -74,6 +89,12 @@ def load_config() -> Config:
         )
         max_seen_ids = history_size
 
+    repeat_window_minutes = _env_int("REPEAT_WINDOW_MINUTES", 30)
+    if repeat_window_minutes < 0:
+        raise ConfigError(
+            f"REPEAT_WINDOW_MINUTES={repeat_window_minutes} mag niet negatief zijn"
+        )
+
     # Geocoding: alleen aan als de thuiscoördinaten er allebei zijn en geldig
     # zijn. Dit wordt éénmalig bij het opstarten gecontroleerd, zodat de
     # poll-loop niet iedere minuut dezelfde warning logt.
@@ -94,19 +115,24 @@ def load_config() -> Config:
             geocoding_enabled = False
 
     return Config(
-        feed_url=os.getenv("FEED_URL", "https://alarmeringen.nl/feeds/city/katwijk.rss"),
+        feed_url=feed_url,
+        location_name=location_name,
+        country_name=country_name,
         mqtt_host=os.getenv("MQTT_HOST", "localhost"),
         mqtt_port=mqtt_port,
         mqtt_user=os.getenv("MQTT_USER", ""),
         mqtt_password=os.getenv("MQTT_PASSWORD", ""),
-        mqtt_topic_base=os.getenv("MQTT_TOPIC_BASE", "alarmeringen/katwijk"),
+        mqtt_topic_base=os.getenv("MQTT_TOPIC_BASE", "p2000"),
         interval=interval,
         history_size=history_size,
         geocoding_enabled=geocoding_enabled,
         home_lat=home_lat,
         home_lon=home_lon,
-        geocoder_user_agent=os.getenv("GEOCODER_USER_AGENT", "alarmeringen-katwijk/1.0"),
+        geocoder_user_agent=os.getenv(
+            "GEOCODER_USER_AGENT", "alarmeringen-mqtt-bridge/1.0"
+        ),
         state_file=os.getenv("STATE_FILE", "/app/data/state.json"),
         max_seen_ids=max_seen_ids,
         heartbeat_file=os.getenv("HEARTBEAT_FILE", "/app/data/heartbeat"),
+        repeat_window=repeat_window_minutes * 60,
     )

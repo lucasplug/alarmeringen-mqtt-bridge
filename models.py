@@ -45,14 +45,14 @@ class Alert:
     dienst: str = ""
     prioriteit: str = ""
     locatie: str = ""
-    plaats: str = "Katwijk"
+    plaats: str = ""
 
     lat: float | None = None
     lon: float | None = None
     afstand_km: float | None = None
 
     @classmethod
-    def from_entry(cls, entry):
+    def from_entry(cls, entry, location_name: str):
         titel = entry.get("title", "").strip()
         omschrijving = entry.get("summary", "").strip()
         link = entry.get("link", "").strip()
@@ -78,8 +78,8 @@ class Alert:
             tijd=tijd,
             dienst=detect_dienst(titel, omschrijving),
             prioriteit=detect_prioriteit(titel),
-            locatie=extract_locatie(titel, omschrijving),
-            plaats="Katwijk",
+            locatie=extract_locatie(titel, omschrijving, location_name),
+            plaats=location_name,
         )
 
     def to_dict(self):
@@ -155,12 +155,12 @@ def detect_dienst(titel: str, omschrijving: str) -> str:
     return ""
 
 
-def extract_locatie(titel: str, omschrijving: str) -> str:
+def extract_locatie(titel: str, omschrijving: str, location_name: str) -> str:
     """
     Probeert de locatie te herkennen, met de meest betrouwbare signalen eerst:
     1. Een provinciaal wegnummer (N-weg), ongeacht of dat in titel of
        omschrijving staat.
-    2. Een expliciete "naar/op/aan ... in Katwijk"-zin in de omschrijving.
+    2. Een expliciete "naar/op/aan ... in <plaats>"-zin in de omschrijving.
     3. Een straatnaam-achtig patroon in de titel, als laatste redmiddel.
     """
     combined = f"{titel} {omschrijving}"
@@ -169,10 +169,11 @@ def extract_locatie(titel: str, omschrijving: str) -> str:
     if road_match:
         return clean_location(road_match.group(1))
 
+    place = re.escape(location_name)
     description_patterns = [
-        r"naar\s+(.+?)\s+in\s+Katwijk\b",
-        r"op\s+(.+?)\s+in\s+Katwijk\b",
-        r"aan\s+(.+?)\s+in\s+Katwijk\b",
+        rf"naar\s+(.+?)\s+in\s+{place}\b",
+        rf"op\s+(.+?)\s+in\s+{place}\b",
+        rf"aan\s+(.+?)\s+in\s+{place}\b",
     ]
 
     for pattern in description_patterns:
@@ -199,18 +200,11 @@ def extract_locatie(titel: str, omschrijving: str) -> str:
 
 
 def clean_location(value: str) -> str:
-    """
-    Ruimt extra witruimte en eenvoudige P2000-resttekst op.
-
-    LET OP: 'katwzh' wordt hier verwijderd als vermoedelijke P2000
-    plaatscode-afkorting. Controleer dit tegen een paar echte
-    feed-items -- als dit een typo voor 'katwijk' was, moet dit
-    aangepast worden.
-    """
+    """Ruimt extra witruimte en generieke P2000-resttekst op."""
     location = re.sub(r"\s+", " ", value).strip(" ,:-")
 
     location = re.sub(
-        r"\s+(?:katwzh|directe inzet|:?\s*\d{4,6})$",
+        r"\s+(?:directe inzet|:?\s*\d{4,6})$",
         "",
         location,
         flags=re.IGNORECASE,
