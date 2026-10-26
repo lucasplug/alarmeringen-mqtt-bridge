@@ -24,6 +24,7 @@ services:
       FEED_URL: "https://alarmeringen.nl/feeds/city/katwijk.rss"
       INTERVAL: "60"
       HISTORY_SIZE: "5"
+      REPEAT_WINDOW_MINUTES: "30"
       GEOCODING_ENABLED: "true"
       HOME_LAT: ""
       HOME_LON: ""

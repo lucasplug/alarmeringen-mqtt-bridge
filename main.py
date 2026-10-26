@@ -25,10 +25,14 @@ def enrich_alert(alert, cfg: Config):
     if not cfg.geocoding_enabled:
         return alert
 
-    location_parts = []
+    # Zonder herkende straat/weg zou alleen de plaats gegeocodeerd worden;
+    # dat geeft de afstand tot het centrum en suggereert een precisie die
+    # er niet is. Dan liever geen coördinaten.
+    if not getattr(alert, "locatie", ""):
+        logging.info("Geen locatie herkend, geocoding overgeslagen: %s", alert.titel)
+        return alert
 
-    if getattr(alert, "locatie", ""):
-        location_parts.append(alert.locatie)
+    location_parts = [alert.locatie]
 
     if getattr(alert, "plaats", ""):
         location_parts.append(alert.plaats)
@@ -64,18 +68,31 @@ def enrich_alert(alert, cfg: Config):
     return alert
 
 
-def process_alerts(alerts, state: AlertState, mqtt, cfg: Config) -> bool:
+def process_alerts(
+    alerts, state: AlertState, mqtt, cfg: Config, announce: bool = True, now=None
+) -> bool:
     """Publiceert nieuwe meldingen en markeert ze PAS als gezien nadat alle
     drie de MQTT-publicaties door de broker bevestigd zijn. Zo raakt een
     melding niet permanent kwijt als MQTT tijdelijk onbereikbaar is: de
     volgende poll probeert het gewoon opnieuw.
 
+    Met announce=False (eerste start zonder state) worden 'laatste' en
+    'historie' wel bijgewerkt, maar gaat er niets naar 'melding': de feed
+    bevat dan vooral oude meldingen die geen notificatie meer moeten geven.
+
     Geeft True terug als er state is gewijzigd (en dus opgeslagen moet worden).
     """
     state_changed = False
+    now = time.time() if now is None else now
 
     for alert in reversed(alerts):
         if state.is_seen(alert.id):
+            continue
+
+        if state.is_repeat(alert.titel, now):
+            logging.info("Herhaling van eerdere melding overgeslagen: %s", alert.titel)
+            state.remember(alert.id)
+            state_changed = True
             continue
 
         alert = enrich_alert(alert, cfg)
@@ -88,7 +105,7 @@ def process_alerts(alerts, state: AlertState, mqtt, cfg: Config) -> bool:
         published = (
             mqtt.publish_json("laatste", payload, retain=True)
             and mqtt.publish_json("historie", candidate_history, retain=True)
-            and mqtt.publish_json("melding", payload, retain=False)
+            and (not announce or mqtt.publish_json("melding", payload, retain=False))
         )
 
         if not published:
@@ -101,9 +118,13 @@ def process_alerts(alerts, state: AlertState, mqtt, cfg: Config) -> bool:
 
         state.history = candidate_history
         state.remember(alert.id)
+        state.remember_title(alert.titel, now)
         state_changed = True
 
-        logging.info("Nieuwe melding gepubliceerd: %s", alert.titel)
+        if announce:
+            logging.info("Nieuwe melding gepubliceerd: %s", alert.titel)
+        else:
+            logging.info("Bestaande melding overgenomen (geen notificatie): %s", alert.titel)
 
     return state_changed
 
@@ -135,8 +156,16 @@ def main() -> int:
     logging.info("MQTT broker: %s:%s", cfg.mqtt_host, cfg.mqtt_port)
     logging.info("MQTT topic base: %s", cfg.mqtt_topic_base)
 
-    state = AlertState(max_seen_ids=cfg.max_seen_ids, history_size=cfg.history_size)
-    state.load(cfg.state_file)
+    state = AlertState(
+        max_seen_ids=cfg.max_seen_ids,
+        history_size=cfg.history_size,
+        repeat_window=cfg.repeat_window,
+    )
+    # Zonder state (eerste start, volume kwijt) staat de feed vol meldingen
+    # die al uren oud kunnen zijn; die niet als nieuwe melding versturen.
+    first_run = not state.load(cfg.state_file)
+    if first_run:
+        logging.info("Eerste start: huidige feed wordt overgenomen zonder notificaties")
 
     mqtt = MqttPublisher(
         host=cfg.mqtt_host,
@@ -171,8 +200,12 @@ def main() -> int:
             logging.warning("Feed niet te parsen: %s", exc)
         else:
             try:
-                if process_alerts(alerts, state, mqtt, cfg):
+                if process_alerts(alerts, state, mqtt, cfg, announce=not first_run):
                     state.save(cfg.state_file)
+                # Pas klaar met overnemen als alles uit de feed verwerkt is
+                # (een MQTT-storing kan de eerste ronde onderbreken).
+                if first_run and all(state.is_seen(a.id) for a in alerts):
+                    first_run = False
             except Exception:
                 logging.exception("Fout bij verwerken/publiceren")
 

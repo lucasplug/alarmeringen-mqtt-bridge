@@ -40,6 +40,7 @@ Een lichte Docker-container die de RSS-feed van **alarmeringen.nl** uitleest en 
 | `FEED_URL` | RSS-feed voor de gekozen plaats of het gebied | **verplicht** |
 | `INTERVAL` | Polling interval (seconden) | `60` |
 | `HISTORY_SIZE` | Aantal meldingen in historie | `5` |
+| `REPEAT_WINDOW_MINUTES` | Herhaalde pagerberichten met exact dezelfde tekst binnen dit aantal minuten worden niet opnieuw verstuurd (`0` = uit) | `30` |
 | `GEOCODING_ENABLED` | Geocoding aan/uit | `true` |
 | `HOME_LAT` | Breedtegraad van je huis (voor afstand) | *(leeg)* |
 | `HOME_LON` | Lengtegraad van je huis (voor afstand) | *(leeg)* |
@@ -112,6 +113,18 @@ Beide compose-varianten mounten een named volume op `/app/data`, zodat `state.js
   nadat de broker alle drie de publicaties heeft bevestigd. Valt MQTT tijdelijk
   weg, dan wordt de melding bij een volgende poll gewoon opnieuw geprobeerd —
   er gaat geen alarmering permanent verloren.
+- P2000 herhaalt pagerberichten vaak na een paar minuten met exact dezelfde
+  tekst. Zo'n herhaling binnen `REPEAT_WINDOW_MINUTES` wordt als gezien
+  gemarkeerd maar niet opnieuw gepubliceerd, zodat Home Assistant geen dubbele
+  notificatie stuurt.
+- Bij de **eerste start** (nog geen `state.json`) worden de meldingen die al in
+  de feed staan overgenomen in `laatste`/`historie`, maar niet naar `melding`
+  gestuurd: dat zijn meestal oude meldingen.
+- Zonder MQTT-verbinding wordt er niets in de wachtrij van de MQTT-client
+  gezet; de volgende poll probeert het opnieuw. Zo komen er na een storing
+  geen opgestapelde dubbele berichten binnen.
+- Wordt er geen straat of weg herkend, dan blijven `lat`/`lon`/`afstand_km`
+  leeg in plaats van de afstand tot het centrum van de plaats te tonen.
 - De RSS-feed wordt opgehaald met expliciete timeouts en statuscontrole, zodat
   een hangende verbinding de poll-loop niet blokkeert.
 - De container heeft een **healthcheck** op basis van een heartbeat die de

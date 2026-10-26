@@ -43,6 +43,7 @@ class Config:
     state_file: str
     max_seen_ids: int
     heartbeat_file: str
+    repeat_window: int = 0
 
 
 def load_config() -> Config:
@@ -88,6 +89,12 @@ def load_config() -> Config:
         )
         max_seen_ids = history_size
 
+    repeat_window_minutes = _env_int("REPEAT_WINDOW_MINUTES", 30)
+    if repeat_window_minutes < 0:
+        raise ConfigError(
+            f"REPEAT_WINDOW_MINUTES={repeat_window_minutes} mag niet negatief zijn"
+        )
+
     # Geocoding: alleen aan als de thuiscoördinaten er allebei zijn en geldig
     # zijn. Dit wordt éénmalig bij het opstarten gecontroleerd, zodat de
     # poll-loop niet iedere minuut dezelfde warning logt.
@@ -127,4 +134,5 @@ def load_config() -> Config:
         state_file=os.getenv("STATE_FILE", "/app/data/state.json"),
         max_seen_ids=max_seen_ids,
         heartbeat_file=os.getenv("HEARTBEAT_FILE", "/app/data/heartbeat"),
+        repeat_window=repeat_window_minutes * 60,
     )
